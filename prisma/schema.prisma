@@ -1,0 +1,197 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  AGENT
+  ADMIN
+}
+
+enum ActorRole {
+  CUSTOMER
+  AGENT
+  ADMIN
+  SYSTEM
+}
+
+enum OrderType {
+  B2B
+  B2C
+}
+
+enum ZoneRelation {
+  INTRA
+  INTER
+}
+
+enum Availability {
+  AVAILABLE
+  BUSY
+  OFFLINE
+}
+
+enum PaymentType {
+  PREPAID
+  COD
+}
+
+enum OrderStatus {
+  PLACED
+  PICKED_UP
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED
+  RESCHEDULED
+}
+
+enum NotificationChannelType {
+  EMAIL
+  SMS
+}
+
+enum NotificationStatus {
+  SENT
+  FAILED
+  SKIPPED
+}
+
+model User {
+  id                    String               @id @default(cuid())
+  name                  String
+  email                 String               @unique
+  passwordHash          String
+  role                  Role
+  phone                 String?
+  createdAt             DateTime             @default(now())
+  agentProfile          Agent?
+  customerOrders        Order[]              @relation("CustomerOrders")
+  createdOrders         Order[]              @relation("CreatedOrders")
+  statusHistory         OrderStatusHistory[] @relation("StatusActor")
+}
+
+model Zone {
+  id             String     @id @default(cuid())
+  name           String     @unique
+  areas          ZoneArea[]
+  agents         Agent[]
+  pickupOrders   Order[]    @relation("PickupZone")
+  dropOrders     Order[]    @relation("DropZone")
+}
+
+model ZoneArea {
+  id        String   @id @default(cuid())
+  zoneId    String
+  areaKey   String   @unique
+  zone      Zone     @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+}
+
+model RateCard {
+  id             String       @id @default(cuid())
+  orderType      OrderType
+  zoneRelation   ZoneRelation
+  baseRate       Float
+  ratePerKg      Float
+  isActive       Boolean      @default(true)
+  effectiveFrom  DateTime
+
+  @@index([orderType, zoneRelation, isActive, effectiveFrom])
+}
+
+model CodConfig {
+  id               String     @id @default(cuid())
+  orderType        OrderType  @unique
+  surchargeAmount  Float
+}
+
+model Agent {
+  id              String        @id @default(cuid())
+  userId          String        @unique
+  currentZoneId   String
+  availability    Availability  @default(AVAILABLE)
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentZone     Zone          @relation(fields: [currentZoneId], references: [id])
+  assignedOrders  Order[]
+  reschedules     RescheduleRequest[]
+}
+
+model Order {
+  id                  String               @id @default(cuid())
+  customerId          String
+  createdById         String
+  pickupAddress       String
+  pickupZoneId        String
+  dropAddress         String
+  dropZoneId          String
+  lengthCm            Float
+  breadthCm           Float
+  heightCm            Float
+  actualWeightKg      Float
+  volumetricWeightKg  Float
+  billableWeightKg    Float
+  orderType           OrderType
+  paymentType         PaymentType
+  baseCharge          Float
+  codSurcharge        Float
+  totalCharge         Float
+  currentStatus       OrderStatus
+  assignedAgentId     String?
+  scheduledDate       DateTime
+  createdAt           DateTime             @default(now())
+  customer            User                 @relation("CustomerOrders", fields: [customerId], references: [id])
+  createdBy           User                 @relation("CreatedOrders", fields: [createdById], references: [id])
+  pickupZone          Zone                 @relation("PickupZone", fields: [pickupZoneId], references: [id])
+  dropZone            Zone                 @relation("DropZone", fields: [dropZoneId], references: [id])
+  assignedAgent       Agent?               @relation(fields: [assignedAgentId], references: [id])
+  statusHistory       OrderStatusHistory[]
+  rescheduleRequests  RescheduleRequest[]
+  notifications       NotificationLog[]
+
+  @@index([customerId, currentStatus])
+  @@index([assignedAgentId, currentStatus])
+  @@index([pickupZoneId])
+  @@index([dropZoneId])
+}
+
+model OrderStatusHistory {
+  id         String       @id @default(cuid())
+  orderId    String
+  status     OrderStatus
+  actorId    String
+  actorRole  ActorRole
+  notes      String?
+  createdAt  DateTime     @default(now())
+  order      Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  actor      User         @relation("StatusActor", fields: [actorId], references: [id])
+
+  @@index([orderId, createdAt])
+}
+
+model RescheduleRequest {
+  id             String   @id @default(cuid())
+  orderId        String
+  requestedDate  DateTime
+  reason         String
+  newAgentId     String?
+  createdAt      DateTime @default(now())
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  newAgent       Agent?   @relation(fields: [newAgentId], references: [id])
+}
+
+model NotificationLog {
+  id         String                   @id @default(cuid())
+  orderId    String
+  channel    NotificationChannelType
+  recipient  String
+  subject    String
+  body       String
+  status     NotificationStatus
+  createdAt  DateTime                 @default(now())
+  order      Order                     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
